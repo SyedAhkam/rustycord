@@ -24,6 +24,7 @@ impl Client<'_> {
 
     pub async fn connect(&self, token: &str) -> RustyCordResult<()> {
         // Do something
+
         Ok(())
     }
 

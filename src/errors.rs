@@ -30,6 +30,15 @@ impl RustyCordError for HTTPException {
 }
 
 #[derive(Debug, Clone)]
+pub struct UnauthorizedException(pub String);
+
+impl RustyCordError for UnauthorizedException {
+    fn cause(&self) -> String {
+        format!("UnauthorizedException({})", self.0)
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct LoginException(pub String);
 
 impl RustyCordError for LoginException {
