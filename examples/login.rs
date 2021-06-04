@@ -11,5 +11,7 @@ async fn main() -> RustyCordResult<()> {
         .run("TOKEN")
         .await?;
 
+    println!("{:#?}", client);
+
     Ok(())
 }

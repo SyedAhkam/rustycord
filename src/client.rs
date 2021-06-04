@@ -18,8 +18,8 @@ impl Client<'_> {
        } 
     }
 
-    pub async fn login(&self, token: &str) -> RustyCordResult<()> {
-        self.http.as_ref().unwrap().static_login(token).await?;
+    pub async fn login(&mut self) -> RustyCordResult<()> {
+        self.http.as_mut().unwrap().static_login().await?;
 
         Ok(())
     }
@@ -33,8 +33,8 @@ impl Client<'_> {
         
         self.http = Some(HTTPClient::new(&token));
 
-        self.login(&token).await.unwrap();
-        self.connect(&token).await.unwrap();
+        self.login().await?;
+        self.connect(&token).await?;
 
         Ok(())
     }

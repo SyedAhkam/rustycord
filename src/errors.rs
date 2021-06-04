@@ -28,3 +28,12 @@ impl RustyCordError for HTTPException {
         format!("HTTPException({})", self.0)
     }
 }
+
+#[derive(Debug, Clone)]
+pub struct LoginException(pub String);
+
+impl RustyCordError for LoginException {
+    fn cause(&self) -> String {
+        format!("LoginException({})", self.0)
+    }
+}
