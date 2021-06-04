@@ -1,48 +1,25 @@
-/// All errors from this crate implement this trait
-pub trait RustyCordError {
-    fn cause(&self) -> String;
+use snafu::Snafu;
+
+use reqwest::Error as ReqwestError;
+use serde_json::Error as SerdeError;
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
+pub enum RustyCordError {
+    #[snafu(display("Failed to make http request to {}", route))]
+    HTTPRequestFailure { route: String, source: ReqwestError },
+
+    #[snafu(display("Unauthorized to access resource: {}", resource))]
+    Unauthorized {
+        resource: String,
+        source: ReqwestError,
+    },
+
+    #[snafu(display("Incorrect token was passed: {}", token))]
+    IncorrectToken { token: String, source: ReqwestError },
+
+    #[snafu(display("Failed to parse response: {}", resp))]
+    ParseFailure { resp: String, source: SerdeError },
 }
 
-impl std::fmt::Debug for dyn RustyCordError + Send + Sync {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "RustyCordError: {}", self.cause())
-    }
-}
-
-pub type RustyCordResult<T> = Result<T, Box<dyn RustyCordError + Send + Sync>>;
-
-#[derive(Debug, Clone)]
-pub struct ClientException(pub String);
-
-impl RustyCordError for ClientException {
-    fn cause(&self) -> String {
-        format!("ClientException({})", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct HTTPException(pub String);
-
-impl RustyCordError for HTTPException {
-    fn cause(&self) -> String {
-        format!("HTTPException({})", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct UnauthorizedException(pub String);
-
-impl RustyCordError for UnauthorizedException {
-    fn cause(&self) -> String {
-        format!("UnauthorizedException({})", self.0)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LoginException(pub String);
-
-impl RustyCordError for LoginException {
-    fn cause(&self) -> String {
-        format!("LoginException({})", self.0)
-    }
-}
+pub type RustyCordResult<T, E = RustyCordError> = Result<T, E>;

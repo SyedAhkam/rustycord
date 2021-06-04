@@ -1,7 +1,7 @@
 use crate::{
     RustyCordResult,
+    RustyCordError,
     http::HTTPClient,
-    errors::{ClientException}
 };
 
 #[derive(Clone, Debug)]
@@ -22,7 +22,7 @@ impl Client<'_> {
         Ok(())
     }
 
-    pub async fn connect(&self, token: &str) -> RustyCordResult<()> {
+    pub async fn connect(&mut self, token: &str) -> RustyCordResult<()> {
         // Do something
 
         Ok(())
@@ -32,8 +32,10 @@ impl Client<'_> {
         
         self.http = Some(HTTPClient::new(&token));
 
-        self.login().await?;
-        self.connect(&token).await?;
+        {
+            self.login().await?;
+            self.connect(&token).await?;
+        }
 
         Ok(())
     }

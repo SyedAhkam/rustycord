@@ -8,19 +8,20 @@ use reqwest::{
     header::{HeaderName, HeaderValue}
 };
 
+use snafu::{ResultExt};
+
 use crate::{
     RustyCordResult,
     errors::{
-        HTTPException,
-        UnauthorizedException,
-        LoginException
+        HTTPRequestFailure,
+        ParseFailure,
+        IncorrectToken,
+        Unauthorized
     },
     models::{
         User
     }
 };
-
-use std::any::Any;
 
 const BASE_URL: &str = "https://discord.com/api/v9";
 
@@ -45,45 +46,30 @@ impl<'a> HTTPClient<'a> {
         self.req_client.execute(
             self.req_client.request(route.method, route.url)
             .header(HeaderName::from_static("authorization"), HeaderValue::from_str(format!("Bot {}", self.token).as_str()).unwrap())
-            .build()
-            .unwrap()
+            .build()?
         ).await
     }
 
     pub async fn get_current_user(&self) -> RustyCordResult<User> {
-        match self.request(Route {
+        Ok(self.request(Route {
             method: Method::GET,
             url: Url::parse(format!("{}/users/@me", BASE_URL).as_str()).unwrap()
-        }).await {
-            Ok(resp) => {
-                match resp.error_for_status() {
-                    Ok(resp) => {
-                        match resp.json::<User>().await {
-                            Ok(user) => return Ok(user),
-                            Err(err) => return Err(Box::new(HTTPException(format!("Failed to parse user response: {:?}", err))))
-                        };
-                    },
-                    Err(err) => {
-                        if err.status() == Some(StatusCode::UNAUTHORIZED) {
-                            return Err(Box::new(UnauthorizedException(format!("Not authorized to get user: {:?}", err))))
-                        } else {
-                            return Err(Box::new(HTTPException(format!("Unexpected response code: {:?}", err))))
-                        }
-                    }
-                }
-            },
-            Err(err) => return Err(Box::new(HTTPException(format!("Failed to send http request: {:?}", err.url()))))
-        }
+        })
+            .await
+            .context(HTTPRequestFailure { route: "fhweuif".to_string() })?
+            .error_for_status()
+            .context(Unauthorized { resource: "/users/@me" })?
+            .json::<User>()
+            .await
+            .context(ParseFailure { resp: "uwfhe".to_string() })?
+        )
     }
 
     pub async fn static_login(&mut self) -> RustyCordResult<()> {
-        match self.get_current_user().await {
-            Ok(user) => self.user = Some(user),
-            Err(err) => {
-                //TODO: need to work on better error handling
-                return Err(Box::new(LoginException(format!("Invalid token was passed: {:?}", err))))
-            }
-        }
+        self.user = Some(self.get_current_user()
+            .await
+            .context(IncorrectToken { token: self.token.to_string() })?
+        );
 
         Ok(())
     }
