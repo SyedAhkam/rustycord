@@ -9,8 +9,6 @@ pub struct Client<'a> {
     http: Option<HTTPClient<'a>>
 }
 
-pub struct Token(String);
-
 impl Client<'_> {
     pub fn new() -> Self {
        Client{
