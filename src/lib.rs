@@ -5,6 +5,6 @@ pub mod http;
 pub mod models;
 
 // Re-exports
-// pub use client::Client;
+pub use client::Client;
 
 pub use error::Result;
