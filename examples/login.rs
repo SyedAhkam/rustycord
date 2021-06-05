@@ -1,10 +1,11 @@
 use rustycord::{
     Client,
-    RustyCordResult
+    Result,
+    client::Error
 };
 
 #[tokio::main]
-async fn main() -> RustyCordResult<()> {
+async fn main() -> Result<()> {
     let mut client = Client::new();
 
     client
