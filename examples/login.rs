@@ -9,7 +9,7 @@ async fn main() -> Result<()> {
     let mut client = Client::new();
 
     client
-        .run("")
+        .run("TOKEN")
         .await?;
 
     println!("{:#?}", client);
