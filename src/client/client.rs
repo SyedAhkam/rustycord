@@ -2,11 +2,10 @@ use snafu::ResultExt;
 
 use crate::{
     http::HTTPClient,
-    Result,
     models::Token,
     client::error::{
-        LoginFailure,
-        ConnectFailure
+        Result,
+        Error
     }
 };
 
@@ -21,7 +20,7 @@ impl Client {
     }
 
     pub async fn login(&mut self) -> Result<()> {
-        self.http.as_mut().unwrap().static_login().await?;
+        self.http.as_mut().unwrap().static_login().await.unwrap();
 
         Ok(())
     }

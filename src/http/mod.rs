@@ -6,3 +6,4 @@ pub mod http;
 pub use http::HTTPClient;
 
 pub use error::Error;
+pub use error::Result;

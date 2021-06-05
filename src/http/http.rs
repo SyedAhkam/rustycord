@@ -1,5 +1,7 @@
 use snafu::ResultExt;
 
+use bytes::Bytes;
+
 use reqwest::{
     header::{HeaderName, HeaderValue},
     Client as ReqwestClient,
@@ -8,11 +10,10 @@ use reqwest::{
 };
 
 use crate::{
-    Result,
-    models::{Token, User},
+    models::{Token},
     http::error::{
-        RequestFailed,
-        ParseError
+        Result,
+        RequestFailed
     }
 };
 
@@ -28,14 +29,12 @@ struct Route {
 pub struct HTTPClient {
     token: Token,
     req_client: ReqwestClient,
-    user: Option<User>,
 }
 
 impl HTTPClient {
     pub fn new(token: Token) -> Self {
         Self {
             token: token,
-            user: None,
             req_client: ReqwestClient::new(),
         }
     }
@@ -48,20 +47,30 @@ impl HTTPClient {
         ).await
     }
     
-    pub async fn get_current_user(&self) -> ReqResult<User> {
-        Ok(self.request(Route {
-            method: Method::GET,
-            url: Url::parse(format!("{}{}/@me", BASE_URL, USER_ENDPOINT).as_str()).unwrap()
-        })
-            .await.unwrap()
-            .json::<User>()
-            .await.unwrap()
-        )
+    async fn check_response_status(&self, status: StatusCode) -> Result<()> {
+        match status {
+            StatusCode::UNAUTHORIZED => return RequestFailed{ status: status}.fail()
+        }
     }
 
-    pub async fn static_login(&mut self) -> Result<()> {
-        self.user = Some(self.get_current_user().await.unwrap());
+    pub async fn get_current_user(&self) -> Result<Bytes> {
+        let result =  self.request(Route {
+            method: Method::GET,
+            url: Url::parse(format!("{}{}/@me", BASE_URL, USER_ENDPOINT).as_str()).unwrap()
+        }).await;
 
-        Ok(())
+        if result.is_err() { return RequestFailed{}.fail() }
+
+        let resp = result.unwrap();
+
+        self.check_response_status(resp.status()).await?;
+
+        Ok(resp.bytes().await.unwrap())
+    }
+
+    pub async fn static_login(&mut self) -> Result<(Bytes)> {
+        Ok(self.get_current_user()
+            .await?
+        )
     }
 }
