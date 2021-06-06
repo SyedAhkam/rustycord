@@ -1,7 +1,6 @@
 use rustycord::{
     Client,
     Result,
-    client::Error
 };
 
 #[tokio::main]

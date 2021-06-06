@@ -1,12 +1,17 @@
-use snafu::ResultExt;
+use snafu::{Snafu, ResultExt};
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub(crate)))]
+pub enum Error {
+    LoginFailure,
+    ConnectFailure,
+}
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 use crate::{
     http::HTTPClient,
     models::Token,
-    client::error::{
-        Result,
-        Error
-    }
 };
 
 #[derive(Debug)]
