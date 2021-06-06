@@ -27,7 +27,8 @@ pub enum Error {
 #[snafu(visibility(pub))]
 pub enum StatusError {
     #[snafu(display("Unauthorized to send http request"))]
-    Unauthorized { source: Box<Error> }
+    #[snafu(source(false))]
+    Unauthorized
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -82,7 +83,7 @@ impl HTTPClient {
 
     pub async fn static_login(&mut self) -> Result<Bytes> {
         Ok(self.get_current_user()
-            .await.context(Status)?
+            .await.context(Unauthorized)?
         )
     }
 }

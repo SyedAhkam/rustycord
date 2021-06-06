@@ -1,11 +1,25 @@
 use snafu::{Snafu, ResultExt};
 
+use crate::{
+    http::{Unauthorized}
+};
+
 #[derive(Debug, Snafu)]
 #[snafu(visibility(pub(crate)))]
 pub enum Error {
-    LoginFailure,
-    ConnectFailure,
+    Login { source: LoginError },
+    Connect { source: ConnectError },
 }
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
+pub enum LoginError {
+    InvalidToken { source: Unauthorized }   
+}
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility(pub))]
+pub enum ConnectError {}
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
 
@@ -25,7 +39,7 @@ impl Client {
     }
 
     pub async fn login(&mut self) -> Result<()> {
-        self.http.as_mut().unwrap().static_login().await.unwrap();
+        self.http.as_mut().unwrap().static_login().await.context(InvalidToken)?;
 
         Ok(())
     }
