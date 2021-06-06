@@ -1,22 +1,52 @@
-/// Public modules
-pub mod client;
-pub mod http;
 pub mod models;
 
-// Re-exports
-pub use client::Client;
+use crate::models::Token;
 
-// Error
-use snafu::Snafu;
-
-/* #[derive(Debug, Snafu)] */
-/* pub struct Error(InnerError); */
-
-#[derive(Debug, Snafu)]
-#[snafu(visibility(pub(crate)))]
-pub enum Error {
-    HTTPError { source: http::Error },
-    ClientError { source: client::Error },
+#[derive(Debug)]
+struct Config {
+    token: Option<Token>
 }
 
-pub type Result<T, E = Error> = std::result::Result<T, E>;
+#[derive(Debug)]
+pub struct Client {}
+
+#[derive(Debug)]
+pub struct ClientBuilder {
+    config: Config
+}
+
+
+impl Client {
+    pub fn builder() -> ClientBuilder {
+        ClientBuilder::new() 
+    }
+
+    pub async fn run(&self) {
+        println!("running");
+    }
+}
+
+impl Default for ClientBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClientBuilder {
+    pub fn new() -> Self {
+        Self { 
+            config: Config {
+                token: None
+            }
+        }
+    }
+
+    pub fn token(mut self, token: &'static str) -> ClientBuilder {
+        self.config.token = Some(Token(&token));
+        self
+    }
+
+    pub fn build(self) -> Client {
+        Client {}
+    }
+}

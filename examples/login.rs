@@ -1,17 +1,14 @@
 use rustycord::{
     Client,
-    Result,
 };
 
 #[tokio::main]
-async fn main() -> Result<()> {
-    let mut client = Client::new();
-
-    client
-        .run("TOKEN")
-        .await?;
+async fn main() {
+    let client = Client::builder()
+        .token("TOKEN")
+        .build()
+        .run()
+        .await;
 
     println!("{:#?}", client);
-
-    Ok(())
 }
