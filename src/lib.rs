@@ -6,12 +6,12 @@ use log::{info, trace, warn, debug, error};
 use crate::models::Token;
 
 #[derive(Debug, Snafu)]
-enum Error {
+pub enum Error {
     #[snafu(display("Invalid token was passed: {:?}", token))]
-    InvalidToken { token: Token, backtrace: Backtrace }
+    InvalidToken { token: Token }
 }
 
-type Result<T, E = Error> = std::result::Result<T, E>;
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[derive(Debug)]
 struct Config {
@@ -27,6 +27,8 @@ impl HttpClient {
     pub fn new(token: Token) -> Self {
         Self { token }
     }
+
+    pub async fn static_login() -> Result<()> {Ok(())}
 }
 
 #[derive(Debug)]
@@ -41,19 +43,23 @@ pub struct ClientBuilder {
 
 
 impl Client {
+    /// Start constructing a new instance of `ClientBuilder` 
     pub fn builder() -> ClientBuilder {
         ClientBuilder::new() 
     }
 
+    /// Logs in using the static token
     async fn login(&self) -> Result<bool> {
         // InvalidToken{ token: Token("e") }.fail()
         Ok(true)
     }
 
+    /// Connects to discord gateway
     async fn connect(&self) -> Result<bool> {
         Ok(true)
     }
 
+    /// Calls `login` and `connect` with error handling
     pub async fn run(self) {
         match self.login().await {
             Ok(true) => info!("Logged in successfully"),
@@ -84,12 +90,15 @@ impl Client {
 }
 
 impl Default for ClientBuilder {
+    /// Aliased to `ClientBuilder::new()`
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl ClientBuilder {
+    /// Returns a new instance of builder
+    /// Same as `Client::builder()`
     pub fn new() -> Self {
         Self { 
             config: Config {
@@ -98,11 +107,13 @@ impl ClientBuilder {
         }
     }
 
+    /// Sets bot token
     pub fn token(mut self, token: &'static str) -> ClientBuilder {
         self.config.token = Some(Token(&token));
         self
     }
 
+    /// Builds a `Client` object
     pub fn build(self) -> Client {
         let token = self.config.token.unwrap();
 
