@@ -8,3 +8,9 @@ impl fmt::Display for Token {
         write!(f, "{}", self.0)
     }
 }
+
+impl Token {
+    pub fn is_empty(&self) -> bool {
+        self.0.trim().is_empty()
+    }
+}

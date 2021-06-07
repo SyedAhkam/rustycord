@@ -18,11 +18,13 @@ struct Config {
 }
 
 #[derive(Debug)]
-pub struct HttpClient {}
+pub struct HttpClient {
+    token: Token
+}
 
 impl HttpClient {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(token: Token) -> Self {
+        Self { token }
     }
 }
 
@@ -42,7 +44,15 @@ impl Client {
         ClientBuilder::new() 
     }
 
-    pub async fn run(&self) {
+    async fn login() -> Result<bool> {
+        Ok(true)
+    }
+
+    async fn connect() -> Result<bool> {
+        Ok(true)
+    }
+
+    pub async fn run(self) {
         println!("running: {:?}", self.http);
     }
 }
@@ -68,10 +78,14 @@ impl ClientBuilder {
     }
 
     pub fn build(self) -> Client {
-        let http_client = HttpClient::new();
+        let token = self.config.token.unwrap();
+
+        if token.is_empty() {
+            panic!("Empty token was passed")
+        }
 
         Client {
-            http: http_client
+            http: HttpClient::new(token.clone())
         }
     }
 }
