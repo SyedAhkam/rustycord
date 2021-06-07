@@ -8,6 +8,7 @@ use reqwest::{
     header::{HeaderMap, HeaderName, HeaderValue},
     Client as ReqwestClient,
     Result as ReqResult,
+    Error as ReqError,
     Method, Response, StatusCode, Url,
 };
 
@@ -15,11 +16,20 @@ use crate::models::Token;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
+    #[snafu(display("Failed to send http request to: {}", endpoint))]
+    RequestSend { endpoint: String, source: ReqError },
+
+    #[snafu(display("Failed to parse response text"))]
+    RequestParse { source: ReqError },
+
     #[snafu(display("Invalid token was passed: {:?}", token))]
     InvalidToken { token: Token }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+const BASE_URL: &str = "https://discord.com/api/v9";
+const USER_ENDPOINT: &str = "/users";
 
 #[derive(Debug)]
 struct Config {
@@ -66,13 +76,20 @@ impl HttpClient {
         Self { token, req_client }
     }
 
-    pub async fn request(&self, route: Route) -> ReqResult<Response> {
+    async fn request(&self, route: Route) -> ReqResult<Response> {
         self.req_client.execute(
             self.req_client.request(route.method, route.url).build()?
         ).await
     }
 
-    pub async fn static_login() -> Result<()> {Ok(())}
+    pub async fn static_login(&self) -> Result<String> {
+        let resp = self.request(Route {
+            method: Method::GET,
+            url: Url::parse(format!("{}{}/@me", BASE_URL, USER_ENDPOINT).as_str()).unwrap()
+        }).await.context(RequestSend { endpoint: "/users/@me" })?;
+
+        Ok(resp.text().await.context(RequestParse)?)
+    }
 }
 
 #[derive(Debug)]
@@ -94,8 +111,11 @@ impl Client {
 
     /// Logs in using the static token
     async fn login(&self) -> Result<bool> {
+        match self.http.static_login().await {
+            Ok(_) => Ok(true),
+            Err(e) => Err(e)
+        }
         // InvalidToken{ token: Token("e") }.fail()
-        Ok(true)
     }
 
     /// Connects to discord gateway
