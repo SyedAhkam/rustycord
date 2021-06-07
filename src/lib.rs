@@ -1,13 +1,14 @@
 pub mod models;
 
 use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
+use log::{info, trace, warn, debug, error};
 
 use crate::models::Token;
 
 #[derive(Debug, Snafu)]
 enum Error {
-    #[snafu(display("Invalid token was passed: {}", token))]
-    InvalidToken { token: Token }
+    #[snafu(display("Invalid token was passed: {:?}", token))]
+    InvalidToken { token: Token, backtrace: Backtrace }
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
@@ -44,16 +45,41 @@ impl Client {
         ClientBuilder::new() 
     }
 
-    async fn login() -> Result<bool> {
+    async fn login(&self) -> Result<bool> {
+        // InvalidToken{ token: Token("e") }.fail()
         Ok(true)
     }
 
-    async fn connect() -> Result<bool> {
+    async fn connect(&self) -> Result<bool> {
         Ok(true)
     }
 
     pub async fn run(self) {
-        println!("running: {:?}", self.http);
+        match self.login().await {
+            Ok(true) => info!("Logged in successfully"),
+            Ok(false) => error!("Failed to login"),
+            Err(e) => {
+                eprintln!("An error occured while trying to login: {}", e);
+
+                if let Some(backtrace) = ErrorCompat::backtrace(&e) {
+                    eprintln!("{}", backtrace);
+                }
+            }
+        }
+        
+        match self.connect().await {
+            Ok(true) => info!("Connected to WS successfully"),
+            Ok(false) => error!("Failed to connect"),
+            Err(e) => {
+                eprintln!("An error occured while trying to connect: {}", e);
+
+                if let Some(backtrace) = ErrorCompat::backtrace(&e) {
+                    eprintln!("{}", backtrace);
+                }
+            }
+        }
+
+        println!("Running");
     }
 }
 
