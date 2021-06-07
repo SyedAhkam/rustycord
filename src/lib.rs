@@ -12,6 +12,8 @@ use reqwest::{
     Method, Response, StatusCode, Url,
 };
 
+use std::env;
+
 use crate::models::Token;
 
 #[derive(Debug, Snafu)]
@@ -20,7 +22,7 @@ pub enum Error {
     RequestSend { endpoint: String, source: ReqError },
 
     #[snafu(display("Failed to parse response text"))]
-    RequestParse { source: ReqError },
+    RequestParse { status: StatusCode, source: ReqError },
 
     #[snafu(display("Invalid token was passed: {:?}", token))]
     InvalidToken { token: Token }
@@ -49,6 +51,7 @@ pub struct HttpClient {
 }
 
 impl HttpClient {
+    /// Returns a new instance
     pub fn new(token: Token) -> Self {
         let mut headers = HeaderMap::new();
         
@@ -82,13 +85,29 @@ impl HttpClient {
         ).await
     }
 
-    pub async fn static_login(&self) -> Result<String> {
+    async fn inspect_response(&self, resp: &Response) -> Result<()> {
+        //TODO: check status codes and "message" field somehow
+        Ok(())
+    }
+
+    /// Returns `/users/@me` response text
+    pub async fn fetch_current_user(&self) -> Result<String> {
         let resp = self.request(Route {
             method: Method::GET,
             url: Url::parse(format!("{}{}/@me", BASE_URL, USER_ENDPOINT).as_str()).unwrap()
         }).await.context(RequestSend { endpoint: "/users/@me" })?;
 
-        Ok(resp.text().await.context(RequestParse)?)
+        let status = &resp.status();
+
+        self.inspect_response(&resp).await?;
+
+        Ok(resp.text().await.context(RequestParse { status })?)
+    }
+
+    /// Logs in using static token
+    pub async fn static_login(&self) -> Result<String> {
+        debug!("Logging in using static token");
+        Ok(self.fetch_current_user().await?)
     }
 }
 
@@ -112,7 +131,10 @@ impl Client {
     /// Logs in using the static token
     async fn login(&self) -> Result<bool> {
         match self.http.static_login().await {
-            Ok(_) => Ok(true),
+            Ok(user_text) => {
+                debug!("Recieved current user info: {}", user_text);
+                Ok(true)
+            },
             Err(e) => Err(e)
         }
         // InvalidToken{ token: Token("e") }.fail()
@@ -172,8 +194,14 @@ impl ClientBuilder {
     }
 
     /// Sets bot token
-    pub fn token(mut self, token: &'static str) -> ClientBuilder {
-        self.config.token = Some(Token(&token));
+    pub fn token(mut self, token: &str) -> ClientBuilder {
+        self.config.token = Some(Token(token.to_string()));
+        self
+    }
+
+    /// Sets bot token using environment variable
+    pub fn token_from_env(mut self, env_name: &'static str) -> ClientBuilder {
+        self.config.token = Some(Token(env::var(env_name).expect("Environment variable not set! ")));
         self
     }
 

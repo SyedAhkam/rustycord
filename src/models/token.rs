@@ -1,7 +1,7 @@
 use std::fmt;
 
 #[derive(Debug, Clone)]
-pub struct Token(pub &'static str);
+pub struct Token(pub String);
 
 impl fmt::Display for Token {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
