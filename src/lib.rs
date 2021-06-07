@@ -1,7 +1,15 @@
 pub mod models;
 
-use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
 use log::{info, trace, warn, debug, error};
+use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
+use rustc_version_runtime::version;
+
+use reqwest::{
+    header::{HeaderMap, HeaderName, HeaderValue},
+    Client as ReqwestClient,
+    Result as ReqResult,
+    Method, Response, StatusCode, Url,
+};
 
 use crate::models::Token;
 
@@ -19,13 +27,49 @@ struct Config {
 }
 
 #[derive(Debug)]
+pub struct Route {
+    method: Method,
+    url: Url,
+}
+
+#[derive(Debug)]
 pub struct HttpClient {
-    token: Token
+    token: Token,
+    req_client: ReqwestClient
 }
 
 impl HttpClient {
     pub fn new(token: Token) -> Self {
-        Self { token }
+        let mut headers = HeaderMap::new();
+        
+        let mut authorization_header_value = HeaderValue::from_str(format!("Bot {}", token).as_str()).unwrap();
+        authorization_header_value.set_sensitive(true);
+
+        headers.insert(
+            HeaderName::from_static("authorization"),
+            authorization_header_value
+        );
+
+        let req_client = ReqwestClient::builder()
+            .user_agent(
+                format!(
+                    "DiscordBot ({}, {}) {}",
+                    env!("CARGO_PKG_REPOSITORY"),
+                    env!("CARGO_PKG_VERSION"),
+                    version()
+                )
+            )
+            .default_headers(headers)
+            .build()
+            .unwrap();
+
+        Self { token, req_client }
+    }
+
+    pub async fn request(&self, route: Route) -> ReqResult<Response> {
+        self.req_client.execute(
+            self.req_client.request(route.method, route.url).build()?
+        ).await
     }
 
     pub async fn static_login() -> Result<()> {Ok(())}
@@ -74,7 +118,7 @@ impl Client {
         }
         
         match self.connect().await {
-            Ok(true) => info!("Connected to WS successfully"),
+            Ok(true) => info!("Connected to gateway successfully"),
             Ok(false) => error!("Failed to connect"),
             Err(e) => {
                 eprintln!("An error occured while trying to connect: {}", e);
@@ -85,7 +129,7 @@ impl Client {
             }
         }
 
-        println!("Running");
+        println!("Running: {:#?}", self);
     }
 }
 
