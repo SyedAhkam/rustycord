@@ -152,6 +152,24 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Returns `/users/<user_id>` response text
+    pub async fn fetch_user(&self, user_id: i64) -> Result<String> {
+        let resp = self.request(Route {
+            method: Method::GET,
+            url: Url::parse(format!("{}{}/{}", BASE_URL, USER_ENDPOINT, user_id).as_str()).unwrap()
+        })
+            .await
+            .context(RequestSend { endpoint: format!("/users/{}", user_id) })?;
+
+        let status = resp.status();
+
+        let data = resp.text().await.context(RequestParse { status })?;
+
+        self.inspect_response(data.as_str(), status).await?;
+
+        Ok(data)
+    }
+
     /// Returns `/users/@me` response text
     pub async fn fetch_current_user(&self) -> Result<String> {
         let resp = self.request(Route {
@@ -198,23 +216,36 @@ impl Client {
         ClientBuilder::new() 
     }
 
+    /// Fetches a `User`
+    /// This is an API call
+    pub async fn fetch_user(&self, user_id: i64) -> Result<User> {
+        let user_text = self.http.fetch_user(user_id).await?;
+        debug!("recieved user on fetch_user: {}", user_text);
+
+        Ok(
+            serde_json::from_str::<User>(user_text.as_str())
+                .context(DeserializeError { text: user_text, target: "User" })?
+        )
+    }
+
     /// Logs in using the static token
     async fn login(&mut self) -> Result<()> {
         let user_text = self.http.static_login().await?;
-        debug!("{}", user_text);
+        debug!("recieved current user on login: {}", user_text);
 
         // Deserialize User then add to self.user
         self.user = Some(
             serde_json::from_str::<User>(user_text.as_str())
-                .context(DeserializeError { text: user_text, target: "User" })?
+                .context(DeserializeError { text: user_text, target: "current User" })?
         );
 
         Ok(())
     }
 
     /// Connects to discord gateway
-    async fn connect(&self) -> Result<bool> {
-        Ok(true)
+    async fn connect(&self) -> Result<()> {
+        // TODO
+        Ok(())
     }
 
     /// Calls `login` and `connect` with error handling
@@ -231,8 +262,7 @@ impl Client {
         }
         
         match self.connect().await {
-            Ok(true) => info!("Connected to gateway successfully"),
-            Ok(false) => error!("Failed to connect"),
+            Ok(_) => info!("Connected to gateway successfully"),
             Err(e) => {
                 eprintln!("An error occured while trying to connect: {}", e);
 
@@ -241,8 +271,6 @@ impl Client {
                 }
             }
         }
-
-        println!("Running: {:#?}", self);
     }
 }
 
