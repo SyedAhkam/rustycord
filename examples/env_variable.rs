@@ -1,7 +1,4 @@
-use rustycord::{
-    Client,
-    Result
-};
+use rustycord::Client;
 
 #[macro_use]
 extern crate log;

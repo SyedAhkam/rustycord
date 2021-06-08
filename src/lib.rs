@@ -24,6 +24,30 @@ pub enum Error {
     #[snafu(display("Failed to parse response text"))]
     RequestParse { status: StatusCode, source: ReqError },
 
+    #[snafu(display("400: Bad request"))]
+    BadRequest,
+
+    #[snafu(display("401: Unauthorized"))]
+    Unauthorized,
+
+    #[snafu(display("403: Forbidden"))]
+    Forbidden,
+
+    #[snafu(display("404: Not Found"))]
+    NotFound,
+
+    #[snafu(display("429: Too Many Requests"))]
+    TooManyRequests,
+
+    #[snafu(display("500: Internal Server Error (discord)"))]
+    InternalServerError,
+
+    #[snafu(display("504: Bad Gateway (discord)"))]
+    BadGateway,
+
+    #[snafu(display("503: Service Unavailable (discord)"))]
+    ServiceUnavailable,
+
     #[snafu(display("Invalid token was passed: {:?}", token))]
     InvalidToken { token: Token }
 }
@@ -85,8 +109,35 @@ impl HttpClient {
         ).await
     }
 
+    async fn check_status_code(&self, status: StatusCode) -> Result<()> {
+        if status.is_client_error() {
+            match status {
+                StatusCode::BAD_REQUEST => return BadRequest.fail(),
+                StatusCode::UNAUTHORIZED => return Unauthorized.fail(),
+                StatusCode::FORBIDDEN => return Forbidden.fail(),
+                StatusCode::NOT_FOUND => return NotFound.fail(),
+                StatusCode::TOO_MANY_REQUESTS => return TooManyRequests.fail(),
+                _ => ()
+            }
+        }
+
+        if status.is_server_error() {
+            match status {
+                StatusCode::INTERNAL_SERVER_ERROR => return InternalServerError.fail(),
+                StatusCode::BAD_GATEWAY => return BadGateway.fail(),
+                StatusCode::SERVICE_UNAVAILABLE => return ServiceUnavailable.fail(),
+                _ => ()
+            }
+        }
+
+        Ok(())
+    }
+
     async fn inspect_response(&self, resp: &Response) -> Result<()> {
-        //TODO: check status codes and "message" field somehow
+        //TODO: check error "message" field somehow
+
+        self.check_status_code(resp.status()).await?;
+
         Ok(())
     }
 

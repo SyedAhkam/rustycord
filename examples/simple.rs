@@ -1,7 +1,4 @@
-use rustycord::{
-    Client,
-    Result
-};
+use rustycord::Client;
 
 #[tokio::main]
 async fn main() {
