@@ -16,7 +16,11 @@ use serde_json;
 
 use std::env;
 
-use crate::models::{Token, DiscordError};
+use crate::models::{
+    Token,
+    DiscordError,
+    User
+};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -51,7 +55,10 @@ pub enum Error {
     ServiceUnavailable { message: String, code: i32 },
 
     #[snafu(display("Invalid token was passed: {:?}", token))]
-    InvalidToken { token: Token }
+    InvalidToken { token: Token },
+
+    #[snafu(display("Failed to deserialize to {}: {}", target, text))]
+    DeserializeError { text: String, target: String, source: serde_json::Error },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -92,7 +99,7 @@ impl HttpClient {
         let req_client = ReqwestClient::builder()
             .user_agent(
                 format!(
-                    "DiscordBot ({}, {}) {}",
+                    "DiscordBot ({}, {}) Rust {}",
                     env!("CARGO_PKG_REPOSITORY"),
                     env!("CARGO_PKG_VERSION"),
                     version()
@@ -167,14 +174,16 @@ impl HttpClient {
 
         match self.fetch_current_user().await {
             Ok(user_text) => Ok(user_text),
-            Err(Unauthorized) => InvalidToken { token: self.token.clone() }.fail()?
+            Err(Error::Unauthorized { .. }) => InvalidToken { token: self.token.clone() }.fail()?,
+            Err(err) => Err(err)
         }
     }
 }
 
 #[derive(Debug)]
 pub struct Client {
-    http: HttpClient
+    http: HttpClient,
+    user: Option<User>
 }
 
 #[derive(Debug)]
@@ -190,11 +199,15 @@ impl Client {
     }
 
     /// Logs in using the static token
-    async fn login(&self) -> Result<()> {
+    async fn login(&mut self) -> Result<()> {
         let user_text = self.http.static_login().await?;
         debug!("{}", user_text);
 
         // Deserialize User then add to self.user
+        self.user = Some(
+            serde_json::from_str::<User>(user_text.as_str())
+                .context(DeserializeError { text: user_text, target: "User" })?
+        );
 
         Ok(())
     }
@@ -205,7 +218,7 @@ impl Client {
     }
 
     /// Calls `login` and `connect` with error handling
-    pub async fn run(self) {
+    pub async fn run(mut self) {
         match self.login().await {
             Ok(_) => info!("Logged in successfully"),
             Err(e) => {
@@ -272,7 +285,8 @@ impl ClientBuilder {
         }
 
         Client {
-            http: HttpClient::new(token.clone())
+            http: HttpClient::new(token.clone()),
+            user: None
         }
     }
 }
