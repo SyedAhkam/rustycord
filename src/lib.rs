@@ -12,9 +12,11 @@ use reqwest::{
     Method, Response, StatusCode, Url,
 };
 
+use serde_json;
+
 use std::env;
 
-use crate::models::Token;
+use crate::models::{Token, DiscordError};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -24,29 +26,29 @@ pub enum Error {
     #[snafu(display("Failed to parse response text"))]
     RequestParse { status: StatusCode, source: ReqError },
 
-    #[snafu(display("400: Bad request"))]
-    BadRequest,
+    #[snafu(display("({}) {}", code, message))]
+    BadRequest { message: String, code: i32 },
 
-    #[snafu(display("401: Unauthorized"))]
-    Unauthorized,
+    #[snafu(display("({}) {}", code, message))]
+    Unauthorized { message: String, code: i32 },
 
-    #[snafu(display("403: Forbidden"))]
-    Forbidden,
+    #[snafu(display("({}): {}", code, message))]
+    Forbidden { message: String, code: i32 },
 
-    #[snafu(display("404: Not Found"))]
-    NotFound,
+    #[snafu(display("({}): {}", code, message))]
+    NotFound { message: String, code: i32 },
 
-    #[snafu(display("429: Too Many Requests"))]
-    TooManyRequests,
+    #[snafu(display("({}): {}", code, message))]
+    TooManyRequests { message: String, code: i32 },
 
-    #[snafu(display("500: Internal Server Error (discord)"))]
-    InternalServerError,
+    #[snafu(display("({}): {}", code, message))]
+    InternalServerError { message: String, code: i32 },
 
-    #[snafu(display("504: Bad Gateway (discord)"))]
-    BadGateway,
+    #[snafu(display("({}): {}", code, message))]
+    BadGateway { message: String, code: i32 },
 
-    #[snafu(display("503: Service Unavailable (discord)"))]
-    ServiceUnavailable,
+    #[snafu(display("({}): {}", code, message))]
+    ServiceUnavailable { message: String, code: i32 },
 
     #[snafu(display("Invalid token was passed: {:?}", token))]
     InvalidToken { token: Token }
@@ -109,23 +111,25 @@ impl HttpClient {
         ).await
     }
 
-    async fn check_status_code(&self, status: StatusCode) -> Result<()> {
+    async fn construct_error(&self, status: StatusCode, error: DiscordError) -> Result<()> {
+        let DiscordError { message, code, .. } = error;
+
         if status.is_client_error() {
             match status {
-                StatusCode::BAD_REQUEST => return BadRequest.fail(),
-                StatusCode::UNAUTHORIZED => return Unauthorized.fail(),
-                StatusCode::FORBIDDEN => return Forbidden.fail(),
-                StatusCode::NOT_FOUND => return NotFound.fail(),
-                StatusCode::TOO_MANY_REQUESTS => return TooManyRequests.fail(),
+                StatusCode::BAD_REQUEST => return BadRequest { message, code }.fail(),
+                StatusCode::UNAUTHORIZED => return Unauthorized { message, code }.fail(),
+                StatusCode::FORBIDDEN => return Forbidden { message, code }.fail(),
+                StatusCode::NOT_FOUND => return NotFound { message, code }.fail(),
+                StatusCode::TOO_MANY_REQUESTS => return TooManyRequests { message, code }.fail(),
                 _ => ()
             }
         }
 
         if status.is_server_error() {
             match status {
-                StatusCode::INTERNAL_SERVER_ERROR => return InternalServerError.fail(),
-                StatusCode::BAD_GATEWAY => return BadGateway.fail(),
-                StatusCode::SERVICE_UNAVAILABLE => return ServiceUnavailable.fail(),
+                StatusCode::INTERNAL_SERVER_ERROR => return InternalServerError { message, code }.fail(),
+                StatusCode::BAD_GATEWAY => return BadGateway { message, code }.fail(),
+                StatusCode::SERVICE_UNAVAILABLE => return ServiceUnavailable { message, code }.fail(),
                 _ => ()
             }
         }
@@ -133,10 +137,10 @@ impl HttpClient {
         Ok(())
     }
 
-    async fn inspect_response(&self, resp: &Response) -> Result<()> {
-        //TODO: check error "message" field somehow
-
-        self.check_status_code(resp.status()).await?;
+    async fn inspect_response(&self, data: &str, status: StatusCode) -> Result<()> {
+        if let Ok(err_resp) = serde_json::from_str::<DiscordError>(data) {
+            self.construct_error(status, err_resp).await?;
+        }
 
         Ok(())
     }
@@ -148,17 +152,23 @@ impl HttpClient {
             url: Url::parse(format!("{}{}/@me", BASE_URL, USER_ENDPOINT).as_str()).unwrap()
         }).await.context(RequestSend { endpoint: "/users/@me" })?;
 
-        let status = &resp.status();
+        let status = resp.status();
 
-        self.inspect_response(&resp).await?;
+        let data = resp.text().await.context(RequestParse { status })?;
 
-        Ok(resp.text().await.context(RequestParse { status })?)
+        self.inspect_response(data.as_str(), status).await?;
+
+        Ok(data)
     }
 
     /// Logs in using static token
     pub async fn static_login(&self) -> Result<String> {
         debug!("Logging in using static token");
-        Ok(self.fetch_current_user().await?)
+
+        match self.fetch_current_user().await {
+            Ok(user_text) => Ok(user_text),
+            Err(Unauthorized) => InvalidToken { token: self.token.clone() }.fail()?
+        }
     }
 }
 
@@ -180,15 +190,13 @@ impl Client {
     }
 
     /// Logs in using the static token
-    async fn login(&self) -> Result<bool> {
-        match self.http.static_login().await {
-            Ok(user_text) => {
-                debug!("Recieved current user info: {}", user_text);
-                Ok(true)
-            },
-            Err(e) => Err(e)
-        }
-        // InvalidToken{ token: Token("e") }.fail()
+    async fn login(&self) -> Result<()> {
+        let user_text = self.http.static_login().await?;
+        debug!("{}", user_text);
+
+        // Deserialize User then add to self.user
+
+        Ok(())
     }
 
     /// Connects to discord gateway
@@ -199,8 +207,7 @@ impl Client {
     /// Calls `login` and `connect` with error handling
     pub async fn run(self) {
         match self.login().await {
-            Ok(true) => info!("Logged in successfully"),
-            Ok(false) => error!("Failed to login"),
+            Ok(_) => info!("Logged in successfully"),
             Err(e) => {
                 eprintln!("An error occured while trying to login: {}", e);
 
