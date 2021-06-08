@@ -19,6 +19,8 @@ use std::env;
 use crate::models::{
     Token,
     DiscordError,
+    Gateway,
+    BotGateway,
     User
 };
 
@@ -66,6 +68,9 @@ pub type Result<T, E = Error> = std::result::Result<T, E>;
 const BASE_URL: &str = "https://discord.com/api/v9";
 const USER_ENDPOINT: &str = "/users";
 
+const DEFAULT_GATEWAY: &str = r#"{"url": "wss://gateway.discord.gg""#;
+const DEFAULT_BOT_GATEWAY: &str = r#"{"url": "wss://gateway.discord.gg""#;
+
 #[derive(Debug)]
 struct Config {
     token: Option<Token>
@@ -112,12 +117,14 @@ impl HttpClient {
         Self { token, req_client }
     }
 
+    /// Makes a http request
     async fn request(&self, route: Route) -> ReqResult<Response> {
         self.req_client.execute(
             self.req_client.request(route.method, route.url).build()?
         ).await
     }
 
+    /// Constructs an error according to the status code
     async fn construct_error(&self, status: StatusCode, error: DiscordError) -> Result<()> {
         let DiscordError { message, code, .. } = error;
 
@@ -144,12 +151,49 @@ impl HttpClient {
         Ok(())
     }
 
+    /// Inspects the recieved response for any potential errors
     async fn inspect_response(&self, data: &str, status: StatusCode) -> Result<()> {
         if let Ok(err_resp) = serde_json::from_str::<DiscordError>(data) {
             self.construct_error(status, err_resp).await?;
         }
 
         Ok(())
+    }
+
+    /// Returns `/gateway` response text
+    async fn fetch_gateway(&self) -> Result<String> {
+        let resp = self.request(Route {
+            method: Method::GET,
+            url: Url::parse(format!("{}/gateway", BASE_URL).as_str()).unwrap()
+        })
+            .await
+            .context(RequestSend { endpoint: "/gateway" })?;
+
+        let status = resp.status();
+
+        let data = resp.text().await.context(RequestParse { status })?;
+
+        self.inspect_response(data.as_str(), status).await?;
+
+        Ok(data)
+    }
+    
+    /// Returns `/gateway/bot` response text
+    async fn fetch_bot_gateway(&self) -> Result<String> {
+        let resp = self.request(Route {
+            method: Method::GET,
+            url: Url::parse(format!("{}/gateway/bot", BASE_URL).as_str()).unwrap()
+        })
+            .await
+            .context(RequestSend { endpoint: "/gateway/bot" })?;
+
+        let status = resp.status();
+
+        let data = resp.text().await.context(RequestParse { status })?;
+
+        self.inspect_response(data.as_str(), status).await?;
+
+        Ok(data)
     }
 
     /// Returns `/users/<user_id>` response text
@@ -228,7 +272,35 @@ impl Client {
         )
     }
 
-    /// Logs in using the static token
+    /// Fetches a `Gateway`
+    async fn fetch_gateway(&self) -> Result<Gateway> {
+        let gateway_text = match self.http.fetch_gateway().await {
+            Ok(gateway) => gateway,
+            Err(_) => DEFAULT_GATEWAY.to_string()
+        };
+        debug!("recieved gateway: {}", gateway_text);
+
+        Ok(
+            serde_json::from_str::<Gateway>(gateway_text.as_str())
+                .context(DeserializeError { text: gateway_text, target: "Gateway" })?
+        )
+    }
+    
+    /// Fetches a `BotGateway`
+    async fn fetch_bot_gateway(&self) -> Result<BotGateway> {
+        let bot_gateway_text = match self.http.fetch_bot_gateway().await {
+            Ok(gateway) => gateway,
+            Err(_) => DEFAULT_BOT_GATEWAY.to_string()
+        };
+        debug!("recieved bot gateway: {}", bot_gateway_text);
+
+        Ok(
+            serde_json::from_str::<BotGateway>(bot_gateway_text.as_str())
+                .context(DeserializeError { text: bot_gateway_text, target: "BotGateway" })?
+        )
+    }
+
+    /// Logs in using a static token
     async fn login(&mut self) -> Result<()> {
         let user_text = self.http.static_login().await?;
         debug!("recieved current user on login: {}", user_text);
@@ -244,7 +316,12 @@ impl Client {
 
     /// Connects to discord gateway
     async fn connect(&self) -> Result<()> {
-        // TODO
+        let mut gateway = self.fetch_gateway().await?;
+
+        gateway.url = format!("{}/?v=9&encoding=json", gateway.url);
+
+        //TODO self.gateway.connect(gateway)
+
         Ok(())
     }
 
@@ -258,6 +335,7 @@ impl Client {
                 if let Some(backtrace) = ErrorCompat::backtrace(&e) {
                     eprintln!("{}", backtrace);
                 }
+                return
             }
         }
         
