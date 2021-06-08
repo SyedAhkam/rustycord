@@ -1,0 +1,3 @@
+# Rustycord
+
+*Work in progress*
