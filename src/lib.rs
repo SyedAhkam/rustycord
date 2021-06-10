@@ -12,8 +12,20 @@ use reqwest::{
     Method, Response, StatusCode, Url,
 };
 
+use tokio_tungstenite::{
+    tungstenite,
+    connect_async,
+    WebSocketStream,
+    MaybeTlsStream,
+};
+
 use serde_json;
 
+use tokio::{
+    net::TcpStream
+};
+
+use futures_util::stream::StreamExt;
 use std::env;
 
 use crate::models::{
@@ -61,6 +73,9 @@ pub enum Error {
 
     #[snafu(display("Failed to deserialize to {}: {}", target, text))]
     DeserializeError { text: String, target: String, source: serde_json::Error },
+
+    #[snafu(display("Failed to connect to gateway url {}", url))]
+    GatewayConnectError { url: String, source: tungstenite::Error }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -243,8 +258,40 @@ impl HttpClient {
 }
 
 #[derive(Debug)]
+pub struct GatewayClient {
+    url: String,
+    ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>
+}
+
+impl GatewayClient {
+    pub fn new(url: String) -> Self {
+        Self { url, ws_stream: None }
+    }
+
+    async fn get_stream(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Error> {
+        let (ws_stream, _) = connect_async(self.url.clone()).await?;
+
+        Ok(ws_stream)
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        // let mut stream = self.ws_stream.as_mut().unwrap();
+
+        Ok(())
+    }
+
+    pub async fn connect(&mut self) -> Result<()> {
+        debug!("Attempting to connect to: {}", self.url);
+        self.ws_stream = Some(self.get_stream().await.context(GatewayConnectError { url: self.url.clone() })?);
+
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
 pub struct Client {
     http: HttpClient,
+    gateway: Option<GatewayClient>,
     user: Option<User>
 }
 
@@ -315,12 +362,14 @@ impl Client {
     }
 
     /// Connects to discord gateway
-    async fn connect(&self) -> Result<()> {
+    async fn connect(&mut self) -> Result<()> {
         let mut gateway = self.fetch_gateway().await?;
-
         gateway.url = format!("{}/?v=9&encoding=json", gateway.url);
 
-        //TODO self.gateway.connect(gateway)
+        self.gateway = Some(GatewayClient::new(gateway.url));
+
+        self.gateway.as_mut().unwrap().connect().await?;
+        self.gateway.as_mut().unwrap().start().await?;
 
         Ok(())
     }
@@ -342,7 +391,7 @@ impl Client {
         match self.connect().await {
             Ok(_) => info!("Connected to gateway successfully"),
             Err(e) => {
-                eprintln!("An error occured while trying to connect: {}", e);
+                eprintln!("An error occured in gateway connection: {}", e);
 
                 if let Some(backtrace) = ErrorCompat::backtrace(&e) {
                     eprintln!("{}", backtrace);
@@ -392,6 +441,7 @@ impl ClientBuilder {
 
         Client {
             http: HttpClient::new(token.clone()),
+            gateway: None,
             user: None
         }
     }
