@@ -1,7 +1,7 @@
 pub mod models;
 
-use log::{info, trace, warn, debug, error};
-use snafu::{ensure, Backtrace, ErrorCompat, ResultExt, Snafu};
+use log::{info, debug};
+use snafu::{ErrorCompat, ResultExt, OptionExt, Snafu};
 use rustc_version_runtime::version;
 
 use reqwest::{
@@ -33,6 +33,8 @@ use crate::models::{
     DiscordError,
     Gateway,
     BotGateway,
+    GatewayMessage,
+    Payload,
     User
 };
 
@@ -75,7 +77,10 @@ pub enum Error {
     DeserializeError { text: String, target: String, source: serde_json::Error },
 
     #[snafu(display("Failed to connect to gateway url {}", url))]
-    GatewayConnectError { url: String, source: tungstenite::Error }
+    GatewayConnectError { url: String, source: tungstenite::Error },
+
+    #[snafu(display("Failed to read socket message"))]
+    GatewayMessageRead
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -260,12 +265,13 @@ impl HttpClient {
 #[derive(Debug)]
 pub struct GatewayClient {
     url: String,
-    ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>
+    ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
+    heartbeat_interval: Option<i32>
 }
 
 impl GatewayClient {
     pub fn new(url: String) -> Self {
-        Self { url, ws_stream: None }
+        Self { url, ws_stream: None, heartbeat_interval: None }
     }
 
     async fn get_stream(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Error> {
@@ -273,9 +279,38 @@ impl GatewayClient {
 
         Ok(ws_stream)
     }
+    
+    async fn read_next(&mut self) -> Result<tungstenite::Message> {
+        Ok(self.ws_stream.as_mut().unwrap().next()
+            .await
+            .context(GatewayMessageRead)
+            .unwrap()
+            .unwrap()
+        )
+    }
+
+    async fn send_heartbeat(&mut self) -> Result<()> {
+        //TODO
+        Ok(())
+    }
+
+    async fn recieve_hello(&mut self) -> Result<()> {
+        let message = self.read_next().await?;
+        let message_str = message.to_text().unwrap();
+
+        let gateway_message = serde_json::from_str::<GatewayMessage>(message_str)
+            .context(DeserializeError { text: message_str, target: "GatewayMessage" })?;
+        
+        debug!("Recieved hello: {:?}", gateway_message);
+
+        let Payload::Hello(payload) = gateway_message.d.unwrap();
+        self.heartbeat_interval = Some(payload.heartbeat_interval);
+
+        Ok(())
+    }
 
     pub async fn start(&mut self) -> Result<()> {
-        // let mut stream = self.ws_stream.as_mut().unwrap();
+        self.recieve_hello().await?;
 
         Ok(())
     }
@@ -334,7 +369,7 @@ impl Client {
     }
     
     /// Fetches a `BotGateway`
-    async fn fetch_bot_gateway(&self) -> Result<BotGateway> {
+    pub async fn fetch_bot_gateway(&self) -> Result<BotGateway> {
         let bot_gateway_text = match self.http.fetch_bot_gateway().await {
             Ok(gateway) => gateway,
             Err(_) => DEFAULT_BOT_GATEWAY.to_string()
