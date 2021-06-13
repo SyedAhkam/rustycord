@@ -10,6 +10,7 @@ pub use common::Snowflake;
 pub use error::DiscordError;
 pub use token::Token;
 
-pub use gateway::{BotGateway, Gateway, GatewayMessage, Payload};
+// pub use gateway::{BotGateway, Gateway, GatewayMessage, Payload};
+pub use gateway::*;
 
 pub use user::User;

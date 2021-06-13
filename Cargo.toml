@@ -12,7 +12,8 @@ license = "MIT"
 tokio = { version="1.6.1", features=[
     "rt",
     "rt-multi-thread",
-    "macros"
+    "macros",
+    "process"
 ]}
 tokio-tungstenite = { version="0.14.0", features=["rustls-tls"], git="https://github.com/snapview/tokio-tungstenite" }
 

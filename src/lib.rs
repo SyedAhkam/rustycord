@@ -22,11 +22,14 @@ use tokio_tungstenite::{
 use serde_json;
 
 use tokio::{
-    net::TcpStream
+    net::TcpStream,
+    sync::Mutex,
 };
 
-use futures_util::stream::StreamExt;
+use futures_util::{SinkExt, stream::StreamExt};
+
 use std::env;
+use std::sync::Arc;
 
 use crate::models::{
     Token,
@@ -34,6 +37,7 @@ use crate::models::{
     Gateway,
     BotGateway,
     GatewayMessage,
+    GatewayOpcode,
     Payload,
     User
 };
@@ -80,7 +84,10 @@ pub enum Error {
     GatewayConnectError { url: String, source: tungstenite::Error },
 
     #[snafu(display("Failed to read socket message"))]
-    GatewayMessageRead
+    GatewayMessageRead,
+
+    #[snafu(display("Failed to send socket message: {:?}", message))]
+    GatewayMessageSend { message: tungstenite::Message, source: tungstenite::Error }
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -262,26 +269,16 @@ impl HttpClient {
     }
 }
 
+type WsStream = Arc<Mutex<WebSocketStream<MaybeTlsStream<TcpStream>>>>;
+
 #[derive(Debug)]
-pub struct GatewayClient {
-    url: String,
-    ws_stream: Option<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    heartbeat_interval: Option<i32>
-}
+struct WsConnection(WsStream);
 
-impl GatewayClient {
-    pub fn new(url: String) -> Self {
-        Self { url, ws_stream: None, heartbeat_interval: None }
-    }
+impl WsConnection {
+    async fn read_next(&self) -> Result<tungstenite::Message> {
+        let mut stream = self.0.lock();
 
-    async fn get_stream(&self) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>, tungstenite::Error> {
-        let (ws_stream, _) = connect_async(self.url.clone()).await?;
-
-        Ok(ws_stream)
-    }
-    
-    async fn read_next(&mut self) -> Result<tungstenite::Message> {
-        Ok(self.ws_stream.as_mut().unwrap().next()
+        Ok(stream.await.next()
             .await
             .context(GatewayMessageRead)
             .unwrap()
@@ -289,13 +286,85 @@ impl GatewayClient {
         )
     }
 
-    async fn send_heartbeat(&mut self) -> Result<()> {
-        //TODO
+    async fn send_msg(&mut self, msg: tungstenite::Message) -> Result<()> {
+        let msg_string = msg.to_text().unwrap().to_string();
+
+        let mut stream = self.0.lock();
+
+        stream.await
+            .send(msg)
+            .await
+            .context(GatewayMessageSend { message: msg_string })?;
+
         Ok(())
     }
 
+    async fn send_continously(&mut self, msg: tungstenite::Message, interval: i32) {
+        loop {
+            println!("continous");
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct GatewayClient {
+    url: String,
+    connection: Option<WsConnection>,
+    heartbeat_interval: Option<i32>
+}
+
+impl GatewayClient {
+    pub fn new(url: String) -> Self {
+        Self { url, connection: None, heartbeat_interval: None }
+    }
+
+    async fn get_connection(&self) -> Result<WsConnection, tungstenite::Error> {
+        let (ws_stream, _) = connect_async(self.url.clone()).await?;
+
+        Ok(WsConnection(Arc::new(Mutex::new(ws_stream))))
+    }
+    
+    async fn send_heartbeat(&mut self) -> Result<()> {
+        self.connection.as_mut().unwrap().send_msg(tungstenite::Message::Text(
+            serde_json::json!({
+                "op": 1,
+                "d": serde_json::json!(null)
+            }).to_string()
+        )).await?;
+
+        Ok(())
+    }
+
+    async fn start_sending_heartbeats(&mut self) -> Result<()> {
+        tokio::task::spawn(async {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+
+            loop {
+                interval.tick().await;
+                println!("hi");
+            }
+        });
+
+        /* tokio::task::spawn_blocking(|| {  */
+            // tokio::spawn(async {
+            //     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+            //     loop {
+            //         interval.tick().await;
+            //         println!("hi");
+            //     }
+            // });
+        /* }); */
+
+        Ok(())
+
+        // loop {
+            // interval.tick().await;
+            // tokio::spawn(async { println!("hi"); });
+        // }
+    }
+
     async fn recieve_hello(&mut self) -> Result<()> {
-        let message = self.read_next().await?;
+        let message = self.connection.as_ref().unwrap().read_next().await?;
         let message_str = message.to_text().unwrap();
 
         let gateway_message = serde_json::from_str::<GatewayMessage>(message_str)
@@ -311,13 +380,20 @@ impl GatewayClient {
 
     pub async fn start(&mut self) -> Result<()> {
         self.recieve_hello().await?;
+        self.start_sending_heartbeats().await?;
 
+        println!("will this execute?");
+        
         Ok(())
     }
 
     pub async fn connect(&mut self) -> Result<()> {
         debug!("Attempting to connect to: {}", self.url);
-        self.ws_stream = Some(self.get_stream().await.context(GatewayConnectError { url: self.url.clone() })?);
+
+        self.connection = Some(self.get_connection()
+            .await
+            .context(GatewayConnectError { url: self.url.clone() })?
+        );
 
         Ok(())
     }
