@@ -1,6 +1,6 @@
 pub mod models;
 
-use log::{info, debug};
+use log::{info, debug, trace};
 use snafu::{ErrorCompat, ResultExt, OptionExt, Snafu};
 use rustc_version_runtime::version;
 
@@ -14,7 +14,6 @@ use reqwest::{
 
 use tokio_tungstenite::{
     tungstenite,
-    connect_async,
     WebSocketStream,
     MaybeTlsStream,
 };
@@ -276,7 +275,8 @@ struct WsConnection(WsStream);
 
 impl WsConnection {
     async fn read_next(&self) -> Result<tungstenite::Message> {
-        let mut stream = self.0.lock();
+        trace!("locking stream to read next");
+        let stream = self.0.lock();
 
         Ok(stream.await.next()
             .await
@@ -289,7 +289,8 @@ impl WsConnection {
     async fn send_msg(&mut self, msg: tungstenite::Message) -> Result<()> {
         let msg_string = msg.to_text().unwrap().to_string();
 
-        let mut stream = self.0.lock();
+        trace!("locking stream to send msg");
+        let stream = self.0.lock();
 
         stream.await
             .send(msg)
@@ -297,12 +298,6 @@ impl WsConnection {
             .context(GatewayMessageSend { message: msg_string })?;
 
         Ok(())
-    }
-
-    async fn send_continously(&mut self, msg: tungstenite::Message, interval: i32) {
-        loop {
-            println!("continous");
-        }
     }
 }
 
@@ -319,7 +314,7 @@ impl GatewayClient {
     }
 
     async fn get_connection(&self) -> Result<WsConnection, tungstenite::Error> {
-        let (ws_stream, _) = connect_async(self.url.clone()).await?;
+        let (ws_stream, _) = tokio_tungstenite::connect_async(self.url.clone()).await?;
 
         Ok(WsConnection(Arc::new(Mutex::new(ws_stream))))
     }
@@ -336,31 +331,41 @@ impl GatewayClient {
     }
 
     async fn start_sending_heartbeats(&mut self) -> Result<()> {
-        tokio::task::spawn(async {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
+        /* self.connection */
+            // .as_mut()
+            // .unwrap()
+            // .send_continously(tungstenite::Message::Text(
+            //     serde_json::json!({
+            //         "op": 1,
+            //         "d": serde_json::json!(null)
+            //     }).to_string()
+            // ), self.heartbeat_interval.unwrap() as u64)
+            /* .await; */
 
-            loop {
-                interval.tick().await;
-                println!("hi");
-            }
-        });
-
-        /* tokio::task::spawn_blocking(|| {  */
-            // tokio::spawn(async {
-            //     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(1000));
-            //     loop {
-            //         interval.tick().await;
-            //         println!("hi");
-            //     }
-            // });
+        // tokio::spawn(async { loop {println!("hi");} });
+        
+        
+        /* let mut connection = self.connection.as_mut().unwrap().clone(); */
+        // let heartbeat_interval = self.heartbeat_interval.unwrap() as u64;
+        //
+        // tokio::spawn(async move {
+        //     let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(heartbeat_interval));
+        //
+        //     loop {
+        //         interval.tick().await;
+        //         println!("sending");
+        //
+        //         connection
+        //             .send_msg(tungstenite::Message::Text(
+        //                 serde_json::json!({
+        //                     "op": 1,
+        //                     "d": serde_json::json!(null)
+        //                 }).to_string()
+        //             )).await;
+        //     }
         /* }); */
 
         Ok(())
-
-        // loop {
-            // interval.tick().await;
-            // tokio::spawn(async { println!("hi"); });
-        // }
     }
 
     async fn recieve_hello(&mut self) -> Result<()> {
@@ -382,8 +387,6 @@ impl GatewayClient {
         self.recieve_hello().await?;
         self.start_sending_heartbeats().await?;
 
-        println!("will this execute?");
-        
         Ok(())
     }
 
@@ -486,6 +489,7 @@ impl Client {
     }
 
     /// Calls `login` and `connect` with error handling
+    /// This is a blocking call, register event handlers before calling this function
     pub async fn run(mut self) {
         match self.login().await {
             Ok(_) => info!("Logged in successfully"),
@@ -509,6 +513,9 @@ impl Client {
                 }
             }
         }
+
+        // Blocks until all pending tasks complete
+        std::future::pending::<()>().await;
     }
 }
 

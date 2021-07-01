@@ -7,6 +7,4 @@ async fn main() {
         .build()
         .run()
         .await;
-
-    std::future::pending().await;
 }
