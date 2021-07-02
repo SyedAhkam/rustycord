@@ -21,6 +21,7 @@ use tokio_tungstenite::{
 use serde_json;
 
 use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
     sync::Mutex,
 };
@@ -268,43 +269,57 @@ impl HttpClient {
     }
 }
 
-type WsStream = Arc<Mutex<WebSocketStream<MaybeTlsStream<TcpStream>>>>;
+type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 #[derive(Debug)]
-struct WsConnection(WsStream);
+struct WsConnection{
+    inner: Mutex<WsStream>
+}
 
 impl WsConnection {
-    async fn read_next(&self) -> Result<tungstenite::Message> {
-        trace!("locking stream to read next");
-        let stream = self.0.lock();
+    async fn new(url: String) -> Result<Self, tungstenite::Error> {
+        let (ws_stream, _) = tokio_tungstenite::connect_async(url).await?;
 
-        Ok(stream.await.next()
-            .await
-            .context(GatewayMessageRead)
-            .unwrap()
-            .unwrap()
-        )
+        Ok(Self { inner: Mutex::new(ws_stream) })
     }
 
-    async fn send_msg(&mut self, msg: tungstenite::Message) -> Result<()> {
-        let msg_string = msg.to_text().unwrap().to_string();
-
-        trace!("locking stream to send msg");
-        let stream = self.0.lock();
-
-        stream.await
-            .send(msg)
-            .await
-            .context(GatewayMessageSend { message: msg_string })?;
-
-        Ok(())
+    fn get_inner(&self) -> Mutex<WsStream> {
+        self.inner
     }
+
+    /* async fn read_next(&self) -> Result<tungstenite::Message> { */
+        // trace!("locking stream to read next");
+        // let stream = self.get_inner().lock();
+        // println!("{:?}", stream.await);
+        //
+        // [> Ok(stream.next() <]
+        //     // .await
+        //     // .context(GatewayMessageRead)
+        //     // .unwrap()
+        //     // .unwrap()
+        // [> ) <]
+        // todo!();
+    /* } */
+    //
+    // async fn send_msg(&mut self, msg: tungstenite::Message) -> Result<()> {
+    //     let msg_string = msg.to_text().unwrap().to_string();
+    //
+    //     trace!("locking stream to send msg");
+    //     let stream = self.0.lock();
+    //
+    //     stream.await
+    //         .send(msg)
+    //         .await
+    //         .context(GatewayMessageSend { message: msg_string })?;
+    //
+    //     Ok(())
+    /* } */
 }
 
 #[derive(Debug)]
 pub struct GatewayClient {
     url: String,
-    connection: Option<WsConnection>,
+    connection: Option<Arc<WsConnection>>,
     heartbeat_interval: Option<i32>
 }
 
@@ -313,19 +328,34 @@ impl GatewayClient {
         Self { url, connection: None, heartbeat_interval: None }
     }
 
-    async fn get_connection(&self) -> Result<WsConnection, tungstenite::Error> {
+    async fn get_connection(&self) -> Result<Arc<WsConnection>, tungstenite::Error> {
         let (ws_stream, _) = tokio_tungstenite::connect_async(self.url.clone()).await?;
 
-        Ok(WsConnection(Arc::new(Mutex::new(ws_stream))))
+        // Ok(Arc::new(WsConnection::new(ws_stream)))
+        Ok(Arc::new(WsConnection::new(self.url.clone()).await?))
     }
     
+    async fn read_next(&self) -> Result<tungstenite::Message> {
+        let connection = self.connection.as_ref().unwrap().clone();
+        let lock = connection.inner.lock().await;
+
+        let (_, read) = lock.split();
+        
+        Ok(read.next()
+            .await
+            .context(GatewayMessageRead)
+            .unwrap()
+            .unwrap()
+        )
+    }
+
     async fn send_heartbeat(&mut self) -> Result<()> {
-        self.connection.as_mut().unwrap().send_msg(tungstenite::Message::Text(
-            serde_json::json!({
-                "op": 1,
-                "d": serde_json::json!(null)
-            }).to_string()
-        )).await?;
+        /* self.connection.as_mut().unwrap().send_msg(tungstenite::Message::Text( */
+            // serde_json::json!({
+            //     "op": 1,
+            //     "d": serde_json::json!(null)
+            // }).to_string()
+        /* )).await?; */
 
         Ok(())
     }
@@ -369,16 +399,16 @@ impl GatewayClient {
     }
 
     async fn recieve_hello(&mut self) -> Result<()> {
-        let message = self.connection.as_ref().unwrap().read_next().await?;
-        let message_str = message.to_text().unwrap();
-
-        let gateway_message = serde_json::from_str::<GatewayMessage>(message_str)
-            .context(DeserializeError { text: message_str, target: "GatewayMessage" })?;
-        
-        debug!("Recieved hello: {:?}", gateway_message);
-
-        let Payload::Hello(payload) = gateway_message.d.unwrap();
-        self.heartbeat_interval = Some(payload.heartbeat_interval);
+        /* let message = self.connection.as_ref().unwrap().read_next().await?; */
+        // let message_str = message.to_text().unwrap();
+        //
+        // let gateway_message = serde_json::from_str::<GatewayMessage>(message_str)
+        //     .context(DeserializeError { text: message_str, target: "GatewayMessage" })?;
+        //
+        // debug!("Recieved hello: {:?}", gateway_message);
+        //
+        // let Payload::Hello(payload) = gateway_message.d.unwrap();
+        /* self.heartbeat_interval = Some(payload.heartbeat_interval); */
 
         Ok(())
     }
